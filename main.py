@@ -1,8 +1,11 @@
+#!/usr/bin/env python3
 import os
+import json
 
 import requests
 import click
 from dotenv import load_dotenv, find_dotenv
+import ckanapi
 
 # Load environment variables
 def get_env_vars(keys):
@@ -20,7 +23,9 @@ env = get_env_vars(['KNACK_APPLICATION_ID',
                     'KNACK_FIELD_REPRESENTATION',
                     'KNACK_FIELD_URL',
                     'KNACK_FIELD_FORMAT',
-                    'KNACK_FIELD_DATASTORE'])
+                    'KNACK_FIELD_DATASTORE',
+                    'CKAN_HOST',
+                    'CKAN_API_KEY'])
 
 # Knack API uses field names like `field_12` instead of actual names
 field_map = {'representation': 'field_' + env['KNACK_FIELD_REPRESENTATION'],
@@ -28,15 +33,18 @@ field_map = {'representation': 'field_' + env['KNACK_FIELD_REPRESENTATION'],
              'format':         'field_' + env['KNACK_FIELD_FORMAT'],
              'datastore':      'field_' + env['KNACK_FIELD_DATASTORE']}
 
-@click.command()
-@click.argument('representation_id')
+@click.group()
+def main():
+    pass
+
+@main.command()
 @click.argument('carto_table')
+@click.argument('representation_id')
 @click.option('--geospatial', is_flag=True, help='Include GeoJSON and SHP endpoints')
-def add(representation_id, carto_table, geospatial):
+def benny(carto_table, representation_id, geospatial):
     """Creates endpoints associated with a representation (aka view/version) in Benny"""
     payloads = [
         construct_payload(representation_id, carto_table, 'CSV'),
-        construct_payload(representation_id, carto_table, 'API Documentation'),
     ]
 
     if geospatial:
@@ -45,12 +53,52 @@ def add(representation_id, carto_table, geospatial):
             construct_payload(representation_id, carto_table, 'SHP'),
         ]
 
+    payloads.append(construct_payload(representation_id, carto_table, 'API Documentation'))
+
     for payload in payloads:
         mapped_payload = map_fields(payload)
         response = request(mapped_payload)
         if response.status_code == 200:
             click.echo('Created {} endpoint on representation {}'.format(payload['format'],
                                                                     representation_id))
+@main.command()
+@click.argument('carto_table')
+@click.argument('ckan_slug')
+@click.option('--geospatial', is_flag=True, help='Include GeoJSON and SHP endpoints')
+def ckan(carto_table, ckan_slug, geospatial):
+    """Creates endpoints associated with a dataset in CKAN"""
+    site = ckanapi.RemoteCKAN(env['CKAN_HOST'], apikey=env['CKAN_API_KEY'])
+
+    package = site.action.package_show(id=ckan_slug)
+    title = package['title']
+    resources = package['resources']
+    old_host = '//data.phila.gov'
+    resources_to_keep = list(filter(lambda resource: old_host not in resource['url'], resources))
+
+    payloads = [
+        construct_ckan_payload(ckan_slug, title, carto_table, 'CSV'),
+    ]
+
+    if geospatial:
+        payloads = payloads + [
+            construct_ckan_payload(ckan_slug, title, carto_table, 'GeoJSON'),
+            construct_ckan_payload(ckan_slug, title, carto_table, 'SHP'),
+        ]
+
+    payloads.append(construct_ckan_payload(ckan_slug, title, carto_table, 'API Documentation'))
+
+    new_resources = payloads + resources_to_keep
+    package.update({'resources': new_resources})
+
+    response = site.action.package_update(**package)
+    click.echo('Created {} resources on slug {}'.format(len(payloads), ckan_slug))
+
+def construct_ckan_payload(ckan_slug, ckan_title, carto_table, file_format):
+    return {
+        'format': file_format,
+        'name': '{} ({})'.format(ckan_title, file_format),
+        'url': construct_url(carto_table, file_format.lower())
+    }
 
 def construct_payload(representation_id, carto_table, file_format):
     return {
@@ -71,7 +119,8 @@ def construct_url(carto_table, file_format):
         return construct_geospatial_url(carto_table, file_format)
 
 def construct_csv_url(carto_table):
-    query = 'SELECT *, ST_Y(the_geom) AS lat, ST_X(the_geom) AS lng FROM {}'.format(carto_table)
+    query = 'SELECT *, ST_Y(the_geom) AS lat, ST_X(the_geom) AS lng FROM {}'.format(carto_table) \
+                                                                            .replace(' ', '+')
     return '{}?q={}&filename={}&format=csv'.format(env['CARTO_ENDPOINT'], query,
                                                    carto_table)
 
@@ -98,4 +147,4 @@ def request(payload):
     return requests.post(url, headers=headers, json=payload)
 
 if __name__ == '__main__':
-    add()
+    main()
