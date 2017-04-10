@@ -2,10 +2,12 @@
 Command-line utility to add carto endpoints to the [metadata catalog](http://metadata.phila.gov)
 
 ```
-Usage: main.py [OPTIONS] REPRESENTATION_ID CARTO_TABLE
+Usage: 
+  main.py benny [OPTIONS] CARTO_TABLE REPRESENTATION_ID
+  main.py ckan [OPTIONS] CARTO_TABLE CKAN_SLUG
 
   Creates endpoints associated with a representation (aka view/version) in
-  Benny
+  Benny or CKAN
 
 Options:
   --geospatial  Include GeoJSON and SHP endpoints
