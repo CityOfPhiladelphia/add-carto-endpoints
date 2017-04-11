@@ -165,7 +165,7 @@ def request(payload):
 @click.argument('representation_id')
 @click.option('--geospatial', is_flag=True, help='Include GeoJSON and SHP endpoints')
 def push_ckan_and_benny(carto_table, ckan_slug, representation_id, geospatial):
-    #_ckan(carto_table, ckan_slug, geospatial)
+    _ckan(carto_table, ckan_slug, geospatial)
     _benny(carto_table, representation_id, geospatial)
 
 if __name__ == '__main__':
